@@ -1,168 +1,194 @@
-// #include <kernel.h>
-// #include <integer.h>
+#include <kernel.h>
+#include <lib.h>
+
+// PCI I/O ports:
+#define IO_ADDRESS 0xCF8
+#define IO_DATA    0xCFC
 
 
-// #define CONFIG_ADDRESS 0xCF8
-// #define CONFIG_DATA    0xCFC
-// #define NO_DEVICE      0xFFFF
+// Static data:
+static unsigned    devcount = 0;
+static PCIDevice_t devices[PCI_MAX_DEVICES] = {};
 
 
-// /*
-//     TABLA DE DISPOSITIVOS
+/*
+    TABLA DE DISPOSITIVOS
 
-//     La tabla de dispositivos está compuesta por entradas en formato:
-//         vdcode: los 16 bits altos son el vendor_id, los bajos el device_id
-//         vname : nombre del vendor
-//         dname : nombre del dispositivo
+    La tabla de dispositivos está compuesta por entradas en formato:
+        vdcode: los 16 bits altos son el vendor_id, los bajos el device_id
+        vname : nombre del vendor
+        dname : nombre del dispositivo
 
-//     Por cada vendor, hay una entrada especial cuyo índice tiene device_id 0,
-//     y cuyo dname es NULL. Esto permite encontrar vendors independientemente.
+    Por cada vendor, hay una entrada especial cuyo índice tiene device_id 0,
+    y cuyo dname es NULL. Esto permite encontrar vendors independientemente.
 
-//     Está almacenada en formato estático en include/ipc/devices.table, y se la
-//     incluye acá.
+    Está almacenada en formato estático en include/ipc/devices.table, y se la
+    incluye acá.
 
-// */
-
-// struct device_entry {
-//     uint32_t  id;
-//     char     *vendor;
-//     char     *device;
-// };
-
-// struct device_entry device_table[] = {
-//     #include <pci/devices.table>
-// };
+*/
 
 
-// struct class_entry {
-//     uint32_t  id;
-//     char     *class;
-//     char     *subclass;
-// };
+struct vnames {
+    unsigned  id;
+    char     *vendor;
+    char     *device;
+};
+
+struct vnames vnames_table[] = {
+    #include <pci/devices.table>
+};
+
+static struct vnames *find_vnames(unsigned short vendor, unsigned short device) {
+    unsigned id = (vendor << 16) | device;
+
+    unsigned i, entries = sizeof(vnames_table) / sizeof(struct vnames);
+
+    for (i = 0; i < entries; i++)
+        if (vnames_table[i].id == id)
+            return &(vnames_table[i]);
+
+    return NULL;
+}
 
 
-// struct class_entry class_table[] = {
-//     #include <pci/classes.table>
-// };
+struct cnames {
+    unsigned  id;
+    char     *class;
+    char     *subclass;
+};
+
+struct cnames cnames_table[] = {
+    #include <pci/classes.table>
+};
+
+static struct cnames *find_cnames(unsigned char class, unsigned char subclass) {
+    unsigned id = (class << 8) | subclass;
+
+    unsigned i, entries = sizeof(cnames_table) / sizeof(struct cnames);
+
+    for (i = 0; i < entries; i++)
+        if (cnames_table[i].id == id)
+            return &(cnames_table[i]);
+
+    return NULL;
+}
 
 
-// // void pci_table_find(int32_t id);
+struct device_header {
+    short vendor;
+    short device;
+    short command;
+    short status;
+    char  revision;
+    char  prog_if;
+    char  subclass;
+    char  class;
+    char  cache_ls;
+    char  latency;
+    char  type;
+    char  bist;
+    int   addresses[6];
+    int   cis_ptr;
+    short subsys_vendor;
+    short subsys;
+    int   rom_base;
+    char  capabilities_ptr;
+    char  reserved[7];
+    char  irq;
+    char  ipin;
+    char  min_grant;
+    char  max_latency;
+
+} __attribute__((packed));
 
 
-// void pci_find_vd_names(uint16_t vid, char **vout, uint16_t did, char **dout) {
-//     // Arguments:
-//     //   vid : vendor ID
-//     //   vout: vendor name output parameter (writes a char*)
-//     //   did : device ID
-//     //   dout: device name output parameter (writes a char*)
-//     size_t   i;
-//     uint32_t id = (vid << 16) | did;
+static int read_reg(char bus, char number, char function, char reg) {
+    // Structure of a PCI configuration address:
+    // 31      30-24     23-16  15-11   10-8      7-0
+    // Enable  Reserved  Bus    Device  Function  Register
 
-//     for (i = 0; i < sizeof(device_table) / sizeof(struct device_entry); i++) {
+    int lregister = reg       * 4; // Turn into offset in bytes
+    int lfunction = function << 8;
+    int lnumber   = number   << 11;
+    int lbus      = bus      << 16;
+    int lenable   = 1        << 31;
 
-//         if (device_table[i].id == id) {
-//             *vout = device_table[i].vendor;
-//             *dout = device_table[i].device;
-//         }
-//     }
-// }
+    int address = lenable | lbus | lnumber | lfunction | lregister;
 
-
-// void pci_find_cls_names(uint16_t cid, char **out, uint16_t scid, char **subout) {
-//     // Arguments:
-//     //   cid   : class ID
-//     //   out   : class name output parameter (writes a char*)
-//     //   scid  : subclass ID
-//     //   subout: subclass name output parameter (writes a char*)
-//     size_t   i;
-//     uint32_t id = (cid << 16) | (scid << 8);
-
-//     for (i = 0; i < sizeof(class_table) / sizeof(struct class_entry); i++) {
-
-//         if (class_table[i].id == id) {
-//             *out    = class_table[i].class;
-//             *subout = class_table[i].subclass;
-//         }
-//     }
-// }
+    outl(IO_ADDRESS, address);
+    return inl(IO_DATA);
+}
 
 
-// // Funciones de acceso a hardware:
+static void read_header(char bus, char number, char function, struct device_header *out) {
+    int *registers = (int *) out;
 
-// static uint32_t pci_read32(uint8_t bus, uint8_t number, uint8_t function, uint8_t offset) {
-//     uint32_t address;
-//     // Estructura de address:
-//     // 31      30-24     23-16  15-11   10-8      7-0
-//     // Enable  Reserved  Bus    Device  Function  Register
-
-//     uint32_t lenable   = 1 << 31;
-//     uint32_t lbus      = bus << 16;
-//     uint32_t lnumber   = number << 11;
-//     uint32_t lfunction = function << 8;
-//     uint32_t loffset   = offset & 0xFC; // los accesos son alineados
-
-//     address = lenable | lbus | lnumber | lfunction | loffset;
-
-//     outl(CONFIG_ADDRESS, address);
-//     uint32_t data = inl(CONFIG_DATA);
-
-//     return data;
-// }
-
-// static uint16_t pci_read16(uint8_t bus, uint8_t number, uint8_t function, uint8_t offset) {
-//     uint32_t data = pci_read32(bus, number, function, offset);
-
-//     // Hay que shiftear y maskear para compensar el alineamiento a 32 bits
-//     return data >> ((offset & 2) * 8) & 0xFFFF;
-// }
-
-// static uint8_t pci_read8(uint8_t bus, uint8_t number, uint8_t function, uint8_t offset) {
-//     uint32_t data = pci_read32(bus, number, function, offset);
-
-//     // Hay que shiftear y maskear para compensar el alineamiento a 32 bits
-//     return data >> ((offset & 3) * 8) & 0xFF;
-// }
+    int i;
+    for (i = 0; i < 16; i++)
+        registers[i] = read_reg(bus, number, function, i);
+}
 
 
-// bool mt_pci_scan(uint8_t bus, uint8_t number, PCIDevice *out) {
-//     uint16_t vendor_id = pci_read16(bus, number, 0, 0);
+static bool scan(char bus, char number, PCIDevice_t *out) {
+    if ((short) read_reg(bus, number, 0, 0) == -1)
+        return false; // No device on bus:number
 
-//     if (vendor_id == NO_DEVICE)
-//         return false;
+    out->bus    = bus;
+    out->number = number;
+    out->fcount = 0;
 
-//     out->bus    = bus;
-//     out->number = number;
+    int i;
+    for (i = 0; i < 8; i++) {
 
-//     uint8_t i, function_id = 0;
+        struct device_header header;
+        read_header(bus, number, i, &header);
 
-//     for (i = 0; i < 8; i++) {
-//         vendor_id = pci_read16(bus, number, i, 0);
+        if (header.vendor == -1)
+            continue;
 
-//         if (vendor_id == NO_DEVICE)
-//             continue;
+        PCIFunction_t *f = &(out->functions[ out->fcount++ ]);
 
-//         PCIFunction *f = &(out->functions[ function_id++ ]);
+        struct vnames *vnames = find_vnames(header.vendor, header.device);
+        struct cnames *cnames = find_cnames(header.class, header.subclass);
 
-//         f->vendor_id   = vendor_id;
-//         f->device_id   = pci_read16(bus, number, i, 0x2);
-//         f->class_id    = pci_read8(bus, number, i, 0xB);
-//         f->subclass_id = pci_read8(bus, number, i, 0xA);
+        f->vendor_id   = header.vendor;
+        f->device_id   = header.device;
+        f->class_id    = header.class;
+        f->subclass_id = header.subclass;
 
-//         f->revision = pci_read8(bus, number, i, 0x8);
-//         f->irq      = pci_read8(bus, number, i, 0x3C);
-//         f->ipin     = pci_read8(bus, number, i, 0x3D);
+        strncpy(f->vendor  , vnames->vendor  , PCI_MAX_NAME_LEN);
+        strncpy(f->device  , vnames->device  , PCI_MAX_NAME_LEN);
+        strncpy(f->class   , cnames->class   , PCI_MAX_NAME_LEN);
+        strncpy(f->subclass, cnames->subclass, PCI_MAX_NAME_LEN);
+    }
 
-//         pci_find_vd_names(
-//             f->vendor_id, &(f->vendor),
-//             f->device_id, &(f->device)
-//         );
+    return true;
+}
 
-//         pci_find_cls_names(
-//             f->class_id   , &(f->class),
-//             f->subclass_id, &(f->subclass)
-//         );
-//     }
+static void scanAll() {
+    int bus, number;
+    PCIDevice_t device;
 
-//     out->fcount = function_id;
-//     return true;
-// }
+    for (bus = 0; bus < 256; bus++)
+    for (number = 0; number < 32; number++) {
+        bool found = scan(bus, number, &device);
+
+        if (found)
+            devices[devcount++] = device;
+    }
+}
+
+
+void mt_pci_init() {
+    scanAll();
+}
+
+
+bool mt_pci_info(unsigned devnum, PCIDevice_t *out) {
+    if (devnum >= devcount)
+        return false;
+
+    memcpy(out, &devices[devnum], sizeof(PCIDevice_t));
+
+    return true;
+}

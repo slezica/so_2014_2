@@ -7,4 +7,5 @@ mt_init_drivers(void)
 	mt_input_init();
 	mt_ps2_init();
 	mt_ide_init();
+    mt_pci_init();
 }

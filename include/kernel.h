@@ -205,7 +205,7 @@ void mt_cons_setfocus(unsigned consnum);
 void mt_cons_setcurrent(unsigned consnum);
 unsigned mt_cons_set0(void);
 
-/* input.c */ 
+/* input.c */
 
 enum { KBD_EVENT, MOUSE_EVENT };
 
@@ -288,5 +288,39 @@ unsigned mt_ide_read(unsigned minor, unsigned block, unsigned nblocks, void *buf
 unsigned mt_ide_write(unsigned minor, unsigned block, unsigned nblocks, void *buffer);
 char *mt_ide_model(unsigned minor);
 unsigned mt_ide_capacity(unsigned minor);
+
+
+/* pci.c */
+
+#define PCI_MAX_DEVICES 16
+#define PCI_MAX_NAME_LEN 128
+
+typedef struct {
+    short  vendor_id;
+    char   vendor[PCI_MAX_NAME_LEN];
+
+    short  device_id;
+    char   device[PCI_MAX_NAME_LEN];
+
+    char  class_id;
+    char  class[PCI_MAX_NAME_LEN];
+
+    char  subclass_id;
+    char  subclass[PCI_MAX_NAME_LEN];
+
+    char revision;
+    char irq, ipin;
+} PCIFunction_t;
+
+typedef struct {
+    unsigned char bus, number;
+    unsigned      fcount;
+    PCIFunction_t functions[8];
+} PCIDevice_t;
+
+
+
+void mt_pci_init();
+bool mt_pci_info(unsigned devnum, PCIDevice_t *out);
 
 #endif
