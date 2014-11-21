@@ -72,8 +72,8 @@ mt_main - Inicializacion del kernel
 
 El control viene aquí inmediatamente después del arranque en kstart.S.
 Las interrupciones están deshabilitadas, puede usarse el stack y los
-registros de segmento CS y DS apuntan a memoria plana con base 0, pueden 
-usarse pero	no cargarse, ni siquiera con los mismos valores que tienen. 
+registros de segmento CS y DS apuntan a memoria plana con base 0, pueden
+usarse pero	no cargarse, ni siquiera con los mismos valores que tienen.
 --------------------------------------------------------------------------------
 */
 
@@ -126,12 +126,12 @@ mt_main(unsigned magic, boot_info_t *info)
 	Protect(t);
 	Ready(t);
 
-	// Habilitar interrupciones. 
+	// Habilitar interrupciones.
 	print0("Interrupciones habilitadas\n");
 	mt_sti();
 
 	// Calibrar lazo de delay para UDelay()
-	print0("Calibrando UDelay()\n"); 
+	print0("Calibrando UDelay()\n");
 	i = msecs_to_ticks(1000);
 	while ( timer_ticks < i )
 	{
@@ -175,14 +175,14 @@ mt_select_task - determina la próxima tarea a ejecutar.
 
 Retorna true si ha cambiado la tarea en ejecucion.
 Llamada desde scheduler() y cuanto retorna una interrupcion de primer nivel.
-Si la tarea actual no es dueña del coprocesador, levanta el bit TS en CR0 para que 
-se genere la excepción 7 la próxima vez que se ejecute una instrucción de 
+Si la tarea actual no es dueña del coprocesador, levanta el bit TS en CR0 para que
+se genere la excepción 7 la próxima vez que se ejecute una instrucción de
 coprocesador.
-Guarda y restaura el contexto propio del usuario, si existe. 
+Guarda y restaura el contexto propio del usuario, si existe.
 --------------------------------------------------------------------------------
 */
 
-bool 
+bool
 mt_select_task(void)
 {
 	Task_t *ready_task;
@@ -197,7 +197,7 @@ mt_select_task(void)
 		ready_task = mt_peeklast(&ready_q);
 		if ( !ready_task || ready_task->priority < mt_curr_task->priority ||
 			(ticks_to_run && ready_task->priority == mt_curr_task->priority) )
-			return false; 
+			return false;
 
 		/* La tarea actual pierde la CPU */
 		mt_curr_task->state = TaskReady;
@@ -256,13 +256,17 @@ run_shell - tarea que ejecuta repetidamente un shell
 static int
 run_shell(void *arg)
 {
-	char *argv[] = { "shell", NULL };	
-	while ( true )
-	{
-		mt_cons_clear();
-		cprintk(LIGHTCYAN, BLACK, "Bienvenido a MTask\n");
-		shell_main(1, argv);
-	}
+	// char *argv[] = { "shell", NULL };
+	// while ( true )
+	// {
+	// 	mt_cons_clear();
+	// 	cprintk(LIGHTCYAN, BLACK, "Bienvenido a MTask\n");
+	// 	shell_main(1, argv);
+	// }
+	// return 0;
+	char *argv[] = { "shell", NULL };
+	mt_cons_clear();
+	lspci_main(1, argv);
 	return 0;
 }
 
@@ -272,13 +276,13 @@ msecs_to_ticks, ticks_to_msecs - conversion de milisegundos a ticks y viceversa
 --------------------------------------------------------------------------------
 */
 
-static unsigned 
+static unsigned
 msecs_to_ticks(unsigned msecs)
 {
 	return (msecs + MSPERTICK - 1) / MSPERTICK;
 }
 
-static unsigned 
+static unsigned
 ticks_to_msecs(unsigned ticks)
 {
 	return ticks * MSPERTICK;
@@ -352,7 +356,7 @@ free_terminated(void)
 		Unatomic();
 		if ( !task )
 			break;
-		Atomic();	
+		Atomic();
 		if ( (name = GetName(task)) )
 			free(name);
 		free(task->stack);
@@ -391,7 +395,7 @@ Decrementa la ranura de tiempo de la tarea actual.
 --------------------------------------------------------------------------------
 */
 
-static void 
+static void
 clockint(unsigned irq)
 {
 	Task_t *task;
@@ -432,13 +436,13 @@ null_task(void *arg)
 --------------------------------------------------------------------------------
 task_list_add - Agregar una tarea al principio de la lista de tareas.
 
-La tarea se pone en la cabeza de la lista. Acaba de ser creada y viene con los 
-punteros a próximo y siguiente en NULL. La primera tarea que se inserta es la 
-tarea nula, que nunca se quita. Por lo tanto, será siempre la última. 
+La tarea se pone en la cabeza de la lista. Acaba de ser creada y viene con los
+punteros a próximo y siguiente en NULL. La primera tarea que se inserta es la
+tarea nula, que nunca se quita. Por lo tanto, será siempre la última.
 --------------------------------------------------------------------------------
 */
 
-static void 
+static void
 task_list_add(Task_t *task)
 {
 	num_tasks++;
@@ -460,12 +464,12 @@ task_list_add(Task_t *task)
 --------------------------------------------------------------------------------
 task_list_remove - Quitar una tarea de la lista de tareas.
 
-La lista no está vacía y la tarea que se va a sacar no es la última (lugar 
+La lista no está vacía y la tarea que se va a sacar no es la última (lugar
 ocupado por la tarea nula).
 --------------------------------------------------------------------------------
 */
 
-static void 
+static void
 task_list_remove(Task_t *task)
 {
 	num_tasks--;
@@ -529,12 +533,12 @@ CreateTask(TaskFunc_t func, unsigned stacksize, void *arg, const char *name, uns
 		stacksize &= ~3;						// redondear a multiplos de 4
 	task->stack = Malloc(stacksize);			// malloc alinea adecuadamente
 
-	/* 
-	Inicializar el stack simulando que wrapper(func, arg) fue interrumpida 
-	antes de ejecutar su primera instrucción y empujó su contexto al stack. 
-	Inicializamos eflags para que corra con interrupciones habilitadas y 
+	/*
+	Inicializar el stack simulando que wrapper(func, arg) fue interrumpida
+	antes de ejecutar su primera instrucción y empujó su contexto al stack.
+	Inicializamos eflags para que corra con interrupciones habilitadas y
 	apuntamos cs:eip a su primera instrucción. Son los registros que el i386
-	empuja al stack cuando se produce una interrupción. Los demás carecen 
+	empuja al stack cuando se produce una interrupción. Los demás carecen
 	de importancia, porque wrapper() todavía no comenzó a ejecutar.
 	*/
 	s = (InitialStack_t *)(task->stack + stacksize) - 1;
@@ -559,7 +563,7 @@ CreateTask(TaskFunc_t func, unsigned stacksize, void *arg, const char *name, uns
 --------------------------------------------------------------------------------
 DeleteTask - elimina una tarea creada con CreateTask.
 
-Si es la tarea actual ejecuta Exit(), en caso contrario se modifica su 
+Si es la tarea actual ejecuta Exit(), en caso contrario se modifica su
 contexto para que ejecute Exit() la próxima vez que recupere el contexto,
 con interrupciones habilitadas y en modo preemptivo. Si está bloqueada se
 la despierta, haciendo fracasar una posible función bloqueante.
@@ -575,7 +579,7 @@ DeleteTask(Task_t *task, int status)
 	if ( !mt_curr_task->protected && task->protected )
 		return false;
 	bool ints = SetInts(false);
-	task->esp->eip = (unsigned) Exit;				// la tarea va a ejecutar Exit() 
+	task->esp->eip = (unsigned) Exit;				// la tarea va a ejecutar Exit()
 	task->atomic_level = 0;							// en modo preemptivo
 	task->esp->eflags = INTFL;						// con interrupciones habilitadas
 	((DeleteStack_t *)task->esp)->status = status;	// argumento de Exit()
@@ -654,7 +658,7 @@ llama al scheduler.
 --------------------------------------------------------------------------------
 */
 
-bool		
+bool
 SetPriority(Task_t *task, unsigned priority)
 {
 	TaskQueue_t *queue;
@@ -745,10 +749,10 @@ GetInfo(Task_t *task, TaskInfo_t *info)
 	switch ( info->state = task->state )
 	{
 		case TaskWaiting:
-		case TaskSending: 
+		case TaskSending:
 			info->waiting = task->queue;
 			break;
-		case TaskReceiving: 
+		case TaskReceiving:
 			info->waiting = task->from;
 			break;
 		case TaskJoining:
@@ -907,13 +911,13 @@ Join, JoinCond, JoinTimed - Esperar que termine una tarea vinculada a la actual
 --------------------------------------------------------------------------------
 */
 
-bool 
+bool
 Join(Task_t *task, int *status)
 {
 	return JoinTimed(task, status, FOREVER);
 }
 
-bool 
+bool
 JoinCond(Task_t *task, int *status)
 {
 	return JoinTimed(task, status, 0);
@@ -960,7 +964,7 @@ JoinTimed(Task_t *task, int *status, unsigned msecs)
 		mt_curr_task->nattached--;
 	}
 	SetInts(ints);
-	return success;		
+	return success;
 }
 
 /*
@@ -990,7 +994,7 @@ Exit(int status)
 	if ( mt_curr_task->nattached )					// desvincular tareas vinculadas
 		for ( t = task_list ; t ; t = t->list_next )
 			if ( t->attached_to == mt_curr_task )
-			{					
+			{
 				bool ints = SetInts(false);
 				t->attached_to = NULL;
 				if ( t->state == TaskZombie )
@@ -1118,7 +1122,7 @@ CreateQueue - crea una cola de tareas
 --------------------------------------------------------------------------------
 */
 
-TaskQueue_t *	
+TaskQueue_t *
 CreateQueue(const char *name)
 {
 	TaskQueue_t *queue = Malloc(sizeof(TaskQueue_t));
@@ -1151,13 +1155,13 @@ Si msecs es FOREVER, espera indefinidamente. Si msecs es cero, retorna false.
 --------------------------------------------------------------------------------
 */
 
-bool			
+bool
 WaitQueue(TaskQueue_t *queue)
 {
 	return WaitQueueTimed(queue, FOREVER);
 }
 
-bool			
+bool
 WaitQueueTimed(TaskQueue_t *queue, unsigned msecs)
 {
 	bool success;
@@ -1183,14 +1187,14 @@ SignalQueue, FlushQueue - funciones para despertar tareas en una cola
 
 SignalQueue despierta la última tarea de la cola (la de mayor prioridad o
 la que llegó primero entre dos de la misma prioridad) y devuelve un puntero a la
-misma (o NULL si la cola estaba vacía). La tarea despertada completa su 
+misma (o NULL si la cola estaba vacía). La tarea despertada completa su
 WaitQueue() exitosamente.
 FlushQueue despierta a todas las tareas de la cola, que completan su
 WaitQueue() con el resultado que se pasa como argumento.
 --------------------------------------------------------------------------------
 */
 
-Task_t *		
+Task_t *
 SignalQueue(TaskQueue_t *queue)
 {
 	Task_t *task;
@@ -1206,7 +1210,7 @@ SignalQueue(TaskQueue_t *queue)
 	return task;
 }
 
-void			
+void
 FlushQueue(TaskQueue_t *queue, bool success)
 {
 	Task_t *task;
@@ -1227,19 +1231,19 @@ Send, SendCond, SendTimed - enviar un mensaje
 --------------------------------------------------------------------------------
 */
 
-bool			
+bool
 Send(Task_t *to, void *msg, unsigned size)
 {
 	return SendTimed(to, msg, size, FOREVER);
 }
 
-bool			
+bool
 SendCond(Task_t *to, void *msg, unsigned size)
 {
 	return SendTimed(to, msg, size, 0);
 }
 
-bool			
+bool
 SendTimed(Task_t *to, void *msg, unsigned size, unsigned msecs)
 {
 	bool success;
@@ -1290,19 +1294,19 @@ Receive, ReceiveCond, ReceiveTimed - recibir un mensaje
 --------------------------------------------------------------------------------
 */
 
-bool			
+bool
 Receive(Task_t **from, void *msg, unsigned *size)
 {
 	return ReceiveTimed(from, msg, size, FOREVER);
 }
 
-bool			
+bool
 ReceiveCond(Task_t **from, void *msg, unsigned *size)
 {
 	return ReceiveTimed(from, msg, size, 0);
 }
 
-bool			
+bool
 ReceiveTimed(Task_t **from, void *msg, unsigned *size, unsigned msecs)
 {
 	bool success;
@@ -1317,7 +1321,7 @@ ReceiveTimed(Task_t **from, void *msg, unsigned *size, unsigned msecs)
 
 	if ( sender )
 	{
-		if ( from ) 
+		if ( from )
 			*from = sender;
 		if ( sender->msg && msg )
 		{
@@ -1376,7 +1380,7 @@ GetName(void *object)
 
 /*
 --------------------------------------------------------------------------------
-Time - devuelve los milisegundos transcurridos desde el arranque 
+Time - devuelve los milisegundos transcurridos desde el arranque
 --------------------------------------------------------------------------------
 */
 

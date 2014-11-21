@@ -17,5 +17,6 @@ int disk_main(int argc, char *argv[]);				// disk.c
 int test_main(int argc, char *argv[]);				// test.c
 int kill_main(int argc, char *argv[]);				// kill.c
 int ts_main(int argc, char *argv[]);				// ts.c
+int lspci_main(int argc, char *argv[]);             // lspci.c
 
 #endif
