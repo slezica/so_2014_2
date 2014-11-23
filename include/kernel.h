@@ -292,10 +292,20 @@ unsigned mt_ide_capacity(unsigned minor);
 
 /* pci.c */
 
+// Configuration:
 #define PCI_MAX_DEVICES 16
 #define PCI_MAX_NAME_LEN 128
 
+
+// Header types:
+#define PCI_TYPE_DEVICE      0x0
+#define PCI_TYPE_PCI_BRIDGE  0x1
+#define PCI_TYPE_CARD_BRIDGE 0x2
+
+
 typedef struct {
+	char   type;
+
     short  vendor_id;
     char   vendor[PCI_MAX_NAME_LEN];
 
@@ -309,7 +319,29 @@ typedef struct {
     char  subclass[PCI_MAX_NAME_LEN];
 
     char revision;
-    char irq, ipin;
+	char irq, ipin;
+
+    union {
+    	struct {
+    		int address[6];
+    	} device;
+
+    	struct {
+    		int  address[2];
+    		char io_base;
+    		char io_limit;
+    		int  pref_base;
+    		int  pref_limit;
+    	} pci_bridge;
+
+    	struct {
+    		int address[2];
+    		int limit[2];
+    		int io_address[2];
+    		int io_limit[2];
+    	} card_bridge;
+    } as;
+
 } PCIFunction_t;
 
 typedef struct {

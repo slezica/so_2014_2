@@ -256,17 +256,17 @@ run_shell - tarea que ejecuta repetidamente un shell
 static int
 run_shell(void *arg)
 {
-	// char *argv[] = { "shell", NULL };
-	// while ( true )
-	// {
-	// 	mt_cons_clear();
-	// 	cprintk(LIGHTCYAN, BLACK, "Bienvenido a MTask\n");
-	// 	shell_main(1, argv);
-	// }
-	// return 0;
 	char *argv[] = { "shell", NULL };
-	mt_cons_clear();
-	lspci_main(1, argv);
+	while ( true )
+	{
+		mt_cons_clear();
+		cprintk(LIGHTCYAN, BLACK, "Bienvenido a MTask\n");
+		shell_main(1, argv);
+	}
+	return 0;
+	// char *argv[] = { "shell", NULL };
+	// mt_cons_clear();
+	// lspci_main(1, argv);
 	return 0;
 }
 

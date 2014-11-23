@@ -12,32 +12,161 @@ static PCIDevice_t devices[PCI_MAX_DEVICES] = {};
 
 
 /*
-    TABLA DE DISPOSITIVOS
-
-    La tabla de dispositivos está compuesta por entradas en formato:
-        vdcode: los 16 bits altos son el vendor_id, los bajos el device_id
-        vname : nombre del vendor
-        dname : nombre del dispositivo
-
-    Por cada vendor, hay una entrada especial cuyo índice tiene device_id 0,
-    y cuyo dname es NULL. Esto permite encontrar vendors independientemente.
-
-    Está almacenada en formato estático en include/ipc/devices.table, y se la
-    incluye acá.
-
+    Hardware PCI headers (order and alignment critical):
 */
+struct pci_common {
+    short vendor;
+    short device;
+    short command;
+    short status;
+    char  revision;
+    char  prog_if;
+    char  subclass;
+    char  class;
+    char  cache_ls;
+    char  latency;
+    char  type;
+    char  bist;
+
+} __attribute__((packed));
 
 
+struct pci_generic {
+    struct pci_common common;
+    char   padding[48];
+
+} __attribute__((packed));
+
+
+struct pci_device {
+    struct pci_common common;
+
+    int   address[6];
+    int   cis_ptr;
+    short subsys_vendor;
+    short subsys;
+    int   rom_base;
+    char  capabilities;
+    char  reserved[7];
+    char  irq;
+    char  ipin;
+    char  min_grant;
+    char  max_latency;
+
+    char  padding[8];
+
+} __attribute__((packed));
+
+
+struct pci_pci_bridge {
+    struct pci_common common;
+
+    int   address[2];
+    char  bus;
+    char  bus2;
+    char  bus3;
+    char  latency2;
+    char  io_base;
+    char  io_limit;
+    short status2;
+    short mem_base;
+    short mem_limit;
+    int   pref_base;
+    int   pref_limit;
+    char  capabilities;
+    char  reserved[3];
+    int   rom_base;
+    char  irq;
+    char  ipin;
+    short bridge_ctl;
+
+    char  padding[8];
+
+} __attribute__((packed));
+
+
+struct pci_card_bridge {
+    struct pci_common common;
+
+    int   card_base;
+    char  capabilities;
+    char  reserved;
+    short status2;
+    char  pci_bus;
+    char  card_bus;
+    char  sub_bus;
+    char  card_latency;
+    int   base0;
+    int   limit0;
+    int   base1;
+    int   limit1;
+    int   io_base0;
+    int   io_limit0;
+    int   io_base1;
+    int   io_limit1;
+    char  irq;
+    char  ipin;
+    short bridge_ctl;
+    short sub_device;
+    short sub_vendor;
+    int   card_legacy_base;
+
+} __attribute__((packed));
+
+
+
+/*
+    DEVICE TABLE
+
+    The device table is made of entries in the following format:
+*/
 struct vnames {
     unsigned  id;
     char     *vendor;
     char     *device;
 };
+/*
+    The entry ID is a 32-bit integer, where the high 16 bits are the vendor ID
+    and the lower 16 bits are the device ID.:
 
+        id = (vendor << 16) | device
+
+    There's an extra entry for each vendor, with a device ID of 0 and device
+    name set to NULL, so that vendors can be found independently.
+*/
+
+
+/*
+    CLASS TABLE
+
+    Like the device table, but the ID is created from the class and subclass
+    8-bit integers, leaving a short integer where the lower 8 bits are the
+    subclass, and bits 8-16 are the class.
+*/
+struct cnames {
+    unsigned  id;
+    char     *class;
+    char     *subclass;
+};
+
+
+// Actual static tables:
 struct vnames vnames_table[] = {
     #include <pci/devices.table>
 };
 
+struct cnames cnames_table[] = {
+    #include <pci/classes.table>
+};
+
+
+/*
+    FINDING VENDOR, DEVICE, CLASS AND SUBCLASS NAMES
+
+    They can be found in pairs, using:
+        find_vnames(vendor, device)
+        find_cnames(class, subclass)
+*/
 static struct vnames *find_vnames(unsigned short vendor, unsigned short device) {
     unsigned id = (vendor << 16) | device;
 
@@ -49,17 +178,6 @@ static struct vnames *find_vnames(unsigned short vendor, unsigned short device) 
 
     return NULL;
 }
-
-
-struct cnames {
-    unsigned  id;
-    char     *class;
-    char     *subclass;
-};
-
-struct cnames cnames_table[] = {
-    #include <pci/classes.table>
-};
 
 static struct cnames *find_cnames(unsigned char class, unsigned char subclass) {
     unsigned id = (class << 8) | subclass;
@@ -74,35 +192,9 @@ static struct cnames *find_cnames(unsigned char class, unsigned char subclass) {
 }
 
 
-struct device_header {
-    short vendor;
-    short device;
-    short command;
-    short status;
-    char  revision;
-    char  prog_if;
-    char  subclass;
-    char  class;
-    char  cache_ls;
-    char  latency;
-    char  type;
-    char  bist;
-    int   addresses[6];
-    int   cis_ptr;
-    short subsys_vendor;
-    short subsys;
-    int   rom_base;
-    char  capabilities_ptr;
-    char  reserved[7];
-    char  irq;
-    char  ipin;
-    char  min_grant;
-    char  max_latency;
 
-} __attribute__((packed));
-
-
-static int read_reg(char bus, char number, char function, char reg) {
+// Hardware PCI register reading:
+static int in_reg(char bus, char number, char function, char reg) {
     // Structure of a PCI configuration address:
     // 31      30-24     23-16  15-11   10-8      7-0
     // Enable  Reserved  Bus    Device  Function  Register
@@ -120,17 +212,89 @@ static int read_reg(char bus, char number, char function, char reg) {
 }
 
 
-static void read_header(char bus, char number, char function, struct device_header *out) {
+static void in_header(char bus, char number, char function, struct pci_generic *out) {
     int *registers = (int *) out;
 
     int i;
-    for (i = 0; i < 16; i++)
-        registers[i] = read_reg(bus, number, function, i);
+    for (i = 0; i < sizeof(struct pci_generic) / 4; i++)
+        registers[i] = in_reg(bus, number, function, i);
+}
+
+
+static void read_device(struct pci_device *in, PCIFunction_t *out) {
+    out->irq  = in->irq;
+    out->ipin = in->ipin;
+
+    int i;
+    for (i = 0; i < 6; i++)
+        out->as.device.address[i] = in->address[i] & (~0xF);
+}
+
+
+static void read_pci_bridge(struct pci_pci_bridge *in, PCIFunction_t *out) {
+    out->irq  = in->irq;
+    out->ipin = in->ipin;
+
+    int i;
+    for (i = 0; i < 2; i++)
+        out->as.device.address[i] = in->address[i] & (~0xF);
+
+    out->as.pci_bridge.io_base    = in->io_base;
+    out->as.pci_bridge.io_limit   = in->io_limit;
+    out->as.pci_bridge.pref_base  = in->pref_base;
+    out->as.pci_bridge.pref_limit = in->pref_limit;
+}
+
+
+static void read_card_bridge(struct pci_card_bridge *in, PCIFunction_t *out) {
+    out->irq  = in->irq;
+    out->ipin = in->ipin;
+
+    out->as.card_bridge.address[0] = in->base0;
+    out->as.card_bridge.limit[0]   = in->limit0;
+    out->as.card_bridge.address[1] = in->base1;
+    out->as.card_bridge.limit[1]   = in->limit1;
+
+    out->as.card_bridge.io_address[0] = in->io_base0;
+    out->as.card_bridge.io_limit[0]   = in->io_limit0;
+    out->as.card_bridge.io_address[1] = in->io_base1;
+    out->as.card_bridge.io_limit[1]   = in->io_limit1;
+}
+
+
+static void read_generic(struct pci_generic *in, PCIFunction_t *out) {
+    out->type = in->common.type;
+
+    out->vendor_id   = in->common.vendor;
+    out->device_id   = in->common.device;
+    out->revision    = in->common.revision;
+    out->class_id    = in->common.class;
+    out->subclass_id = in->common.subclass;
+
+    struct vnames *vnames = find_vnames(in->common.vendor, in->common.device);
+    struct cnames *cnames = find_cnames(in->common.class, in->common.subclass);
+
+    strncpy(out->vendor  , vnames->vendor  , PCI_MAX_NAME_LEN);
+    strncpy(out->device  , vnames->device  , PCI_MAX_NAME_LEN);
+    strncpy(out->class   , cnames->class   , PCI_MAX_NAME_LEN);
+    strncpy(out->subclass, cnames->subclass, PCI_MAX_NAME_LEN);
+
+    switch (in->common.type) {
+        case PCI_TYPE_DEVICE:
+            read_device((struct pci_device*) in, out);
+        break;
+        case PCI_TYPE_PCI_BRIDGE:
+            read_pci_bridge((struct pci_pci_bridge*) in, out);
+        break;
+        case PCI_TYPE_CARD_BRIDGE:
+            read_card_bridge((struct pci_card_bridge*) in, out);
+        break;
+    }
 }
 
 
 static bool scan(char bus, char number, PCIDevice_t *out) {
-    if ((short) read_reg(bus, number, 0, 0) == -1)
+    if ((short) in_reg(bus, number, 0, 0) == -1)
         return false; // No device on bus:number
 
     out->bus    = bus;
@@ -139,27 +303,15 @@ static bool scan(char bus, char number, PCIDevice_t *out) {
 
     int i;
     for (i = 0; i < 8; i++) {
+        struct pci_generic header;
+        memset(&header, 0, sizeof(header));
+        in_header(bus, number, i, &header);
 
-        struct device_header header;
-        read_header(bus, number, i, &header);
-
-        if (header.vendor == -1)
+        if (header.common.vendor == -1)
             continue;
 
         PCIFunction_t *f = &(out->functions[ out->fcount++ ]);
-
-        struct vnames *vnames = find_vnames(header.vendor, header.device);
-        struct cnames *cnames = find_cnames(header.class, header.subclass);
-
-        f->vendor_id   = header.vendor;
-        f->device_id   = header.device;
-        f->class_id    = header.class;
-        f->subclass_id = header.subclass;
-
-        strncpy(f->vendor  , vnames->vendor  , PCI_MAX_NAME_LEN);
-        strncpy(f->device  , vnames->device  , PCI_MAX_NAME_LEN);
-        strncpy(f->class   , cnames->class   , PCI_MAX_NAME_LEN);
-        strncpy(f->subclass, cnames->subclass, PCI_MAX_NAME_LEN);
+        read_generic(&header, f);
     }
 
     return true;

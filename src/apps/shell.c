@@ -41,6 +41,7 @@ cmdtab[] =
 	{	"ts", 			ts_main,			"[consola...]"		},
 	{	"kill",			kill_main,			"tarea [status]"	},
 	{	"test",			test_main,			""					},
+	{	"lspci",		lspci_main, 		"lista PCI"  		},
 	{															}
 };
 
@@ -95,7 +96,7 @@ shell_main(int argc, char **argv)
 	char *hist[NHIST];
 	int pos, hfirst, hcur, hlast;
 	bool wait, found;
-	
+
 	for ( hcur = 0 ; hcur < NHIST ; hcur++ )
 		hist[hcur] = Malloc(BUFSIZE);
 	hfirst = hcur = hlast = -1;
@@ -123,7 +124,7 @@ shell_main(int argc, char **argv)
 					if ( (hcur = hlast) != -1 )
 						strcpy(line, hist[hcur]);
 					break;
-				case BACK:	
+				case BACK:
 					if ( hcur == -1 )
 						hcur = hlast;
 					else
